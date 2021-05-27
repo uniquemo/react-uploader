@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Progress from 'components/Progress';
-import request, { IFileProgress } from 'utils/request';
+import request, { IUploadFile } from 'utils/request';
 
-import './style.css';
+import './style.scss';
 
 export interface IUploaderProps {
   name: string;
@@ -11,8 +11,33 @@ export interface IUploaderProps {
 
 const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const [percentMap, setPercentMap] = useState<Record<string, number>>({});
+  const [uploadFiles, setUploadFiles] = useState<IUploadFile[]>([]);
+
+  const upload = useCallback(async (files: FileList) => {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const formData = new FormData();
+      formData.append(name, file);
+
+      await request({
+        method: 'post',
+        url: action,
+        data: formData,
+        onLoadStart: (uploadFile: IUploadFile) => {
+          uploadFile.file = file;
+          uploadFiles.push(uploadFile);
+          setUploadFiles([...uploadFiles]);
+        },
+        onLoad: (uploadFile: IUploadFile, result: any) => {
+          uploadFile.url = result.url;
+          setUploadFiles([...uploadFiles]);
+        },
+        onProgress: (uploadFile: IUploadFile) => {
+          setUploadFiles([...uploadFiles]);
+        }
+      });
+    }
+  }, [action, name, uploadFiles])
 
   const onDragEnter = (event: DragEvent) => {
     event.preventDefault();
@@ -32,25 +57,15 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const onDrop = useCallback(async (event: DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    const file = event.dataTransfer!.files[0];
-    setFiles([...files, file]);
 
-    const formData = new FormData();
-    formData.append(name, file);
+    if (event.dataTransfer!.files) {
+      upload(event.dataTransfer!.files);
+    }
+  }, [upload])
 
-    const result = await request({
-      method: 'post',
-      url: action,
-      data: formData,
-      onProgress: ({ percent }: IFileProgress) => {
-        setPercentMap({
-          ...percentMap,
-          [file.name]: percent
-        })
-      }
-    });
-    console.log(`result => `, result);
-  }, [action, files, name, percentMap])
+  const onFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    upload(event.target.files as FileList);
+  }
 
   useEffect(() => {
     const rootDom = rootRef.current;
@@ -67,18 +82,20 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
     }
   }, [onDrop])
 
-  console.log(`files => `, files)
-
   return (
     <>
       <div className={`uploader`} ref={rootRef}>
-        test
+        <input type='file' onChange={onFileInputChange} />
+        Drag or Click to upload
       </div>
       <div className={`uploader-progress`}>
-        {files.map(({ name }: File, index: number) => (
-          <div key={index}>
-            <div>{name}</div>
-            <Progress percent={percentMap[name]} />
+        {uploadFiles.map(({ file, percent, url }: IUploadFile, index: number) => (
+          <div key={index} className={`uploader-progress-item`}>
+            <div className={`uploader-progress-item-name`}>
+              {file!.name}{`（${percent}%）`}
+              {url && <a href={url} target='_blank' rel='noreferrer'>Link</a>}
+            </div>
+            <Progress percent={percent || 0} />
           </div>
         ))}
       </div>

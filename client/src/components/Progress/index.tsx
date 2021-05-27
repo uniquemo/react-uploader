@@ -7,7 +7,7 @@ interface IProps {
 const Progress = ({ percent }: IProps) => {
   return (
     <div className={`progress`}>
-      <div style={{ width: `${percent || 0}%` }} className={`percent`} />
+      <div style={{ width: `${percent}%` }} className={`percent`} />
     </div>
   )
 }

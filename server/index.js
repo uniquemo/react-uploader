@@ -11,8 +11,12 @@ app.use(async (ctx, next) => {
   ctx.set('Access-Control-Allow-Origin', '*');
   ctx.set('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   ctx.set('Access-Control-Allow-Methods', 'POST, GET, PUT, DELETE, OPTIONS');
-  ctx.set('Content-Type', 'application/json; charset=utf-8')
-  await next();
+
+  if (ctx.method === 'OPTIONS') {
+    ctx.body = 204;
+  } else {
+    await next();
+  }
 })
 
 app.use(koaStatic(UPLOAD_DIR_PATH))
@@ -32,7 +36,7 @@ app.use(async (ctx, next) => {
       const { path } = file;
       const splitPath = path.split('/');
       ctx.body = {
-        url: splitPath[splitPath.length - 1]
+        url: `http://localhost:5000/${splitPath[splitPath.length - 1]}`
       };
     })
   }
