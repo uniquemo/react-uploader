@@ -1,6 +1,14 @@
-const Progress = () => {
+import './style.css';
+
+interface IProps {
+  percent: number;
+}
+
+const Progress = ({ percent }: IProps) => {
   return (
-    <div>progress</div>
+    <div className={`progress`}>
+      <div style={{ width: `${percent || 0}%` }} className={`percent`} />
+    </div>
   )
 }
 
