@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Progress from 'components/Progress';
-import request, { IUploadFile } from 'utils/request';
+import request from 'utils/request';
+import { createChunks } from 'utils/file';
+import { IFilePart, IUploadedFile } from 'types/index';
 
 import './style.scss';
 
@@ -11,33 +13,105 @@ export interface IUploaderProps {
 
 const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [uploadFiles, setUploadFiles] = useState<IUploadFile[]>([]);
+  const [currentFile, setCurrentFile] = useState<File>();
+  const [objectURL, setObjectURL] = useState<string>('');
+  const [hashPercent, setHashPercent] = useState<number>(0);
+  const [filename, setFilename] = useState<string>('');
+  const [partList, setPartList] = useState<IFilePart[]>([]);
 
-  const upload = useCallback(async (files: FileList) => {
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const formData = new FormData();
-      formData.append(name, file);
-
-      await request({
-        method: 'post',
-        url: action,
-        data: formData,
-        onLoadStart: (uploadFile: IUploadFile) => {
-          uploadFile.file = file;
-          uploadFiles.push(uploadFile);
-          setUploadFiles([...uploadFiles]);
-        },
-        onLoad: (uploadFile: IUploadFile, result: any) => {
-          uploadFile.url = result.url;
-          setUploadFiles([...uploadFiles]);
-        },
-        onProgress: (uploadFile: IUploadFile) => {
-          setUploadFiles([...uploadFiles]);
+  const calculateHash = (partList: IFilePart[]) => {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker('/hash.js');
+      worker.postMessage({ partList });
+      worker.onmessage = (event) => {
+        const { percent, hash } = event.data;
+        setHashPercent(percent);
+        if (hash) {
+          resolve(hash);
         }
-      });
+      }
+    });
+  }
+
+  const handlePause = () => {
+    partList.forEach((part: IFilePart) => part.xhr && part.xhr.abort());
+  }
+
+  const handleResume = async () => {
+    await uploadParts(partList, filename);
+  }
+
+  const handleUpload = async () => {
+    if (!currentFile) return;
+
+    const partList: IFilePart[] = createChunks(currentFile);
+    const fileHash = await calculateHash(partList);
+    const lastDotIndex = currentFile.name.lastIndexOf('.');
+    const extName = currentFile.name.slice(lastDotIndex);
+    const filename = `${fileHash}${extName}`;
+    setFilename(filename);
+
+    partList.forEach((item: IFilePart, index: number) => {
+      item.filename = filename;
+      item.chunkName = `${filename}-${index}`;
+      item.loaded = 0;
+      item.percent = 0;
+    });
+    setPartList(partList);
+    await uploadParts(partList, filename);
+  }
+
+  const verify = async (filename: string) => {
+    return await request({
+      url: `/verify/${filename}`
+    });
+  }
+
+  const uploadParts = async (partList: IFilePart[], filename: string) => {
+    const { needUpload, uploadList } = await verify(filename);
+    if (!needUpload) {
+      return window.alert('秒传成功');
     }
-  }, [action, name, uploadFiles])
+
+    try {
+      const requests = createRequests(partList, uploadList, filename);
+      await Promise.all(requests);
+      await request({ url: `/merge/${filename}` });
+      window.alert(`上传成功`);
+    } catch (error) {
+      window.alert('上传失败或暂停');
+    }
+  }
+
+  const createRequests = (partList: IFilePart[], uploadList: IUploadedFile[], filename: string) => {
+    return partList.filter((part: IFilePart) => {
+      const uploadFile = uploadList.find(item => item.filename === part.chunkName);
+      if (!uploadFile) {
+        part.loaded = 0;
+        part.percent = 0;
+        return true;
+      }
+      if (uploadFile.size < part.chunk.size) {
+        part.loaded = uploadFile.size;
+        part.percent = Number((part.loaded / part.chunk.size * 100).toFixed(2));
+        return true;
+      }
+      return false;
+    }).map((part: IFilePart) => {
+      return request({
+        url: `/upload/${filename}/${part.chunkName}/${part.loaded}`,
+        method: 'post',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        setXHR: (xhr: XMLHttpRequest) => part.xhr = xhr,
+        onProgress: (event: ProgressEvent) => {
+          part.percent = Number(((part.loaded! + event.loaded) / part.chunk.size * 100).toFixed(2));
+          console.log('part.percent', part.chunkName, part.percent);
+          setPartList([...partList]);
+        },
+        data: part.chunk.slice(part.loaded)
+      })
+    })
+  }
 
   const onDragEnter = (event: DragEvent) => {
     event.preventDefault();
@@ -59,12 +133,12 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
     event.stopPropagation();
 
     if (event.dataTransfer!.files) {
-      upload(event.dataTransfer!.files);
+      setCurrentFile(event.dataTransfer!.files[0]);
     }
-  }, [upload])
+  }, [])
 
   const onFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    upload(event.target.files as FileList);
+    setCurrentFile(event.target.files![0]);
   }
 
   useEffect(() => {
@@ -82,18 +156,41 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
     }
   }, [onDrop])
 
+  useEffect(() => {
+    if (currentFile) {
+      const reader = new FileReader();
+      reader.addEventListener('load', () => setObjectURL(reader.result as string));
+      reader.readAsDataURL(currentFile);
+    }
+  }, [currentFile])
+
   return (
     <>
       <div className={`uploader`} ref={rootRef}>
         <input type='file' onChange={onFileInputChange} />
         Drag or Click to upload
       </div>
+      {objectURL && (
+        <div>
+          <img src={objectURL} style={{ width: 100 }} alt='' />
+        </div>
+      )}
+      <div>
+        <button onClick={handleUpload}>上传</button>
+        <button onClick={handlePause}>暂停</button>
+        <button onClick={handleResume}>继续</button>
+      </div>
+
+      <div>
+        <div>hash percent：{`${hashPercent}%`}</div>
+        <Progress percent={hashPercent} />
+      </div>
+
       <div className={`uploader-progress`}>
-        {uploadFiles.map(({ file, percent, url }: IUploadFile, index: number) => (
+        {partList.map(({ chunkName, percent }: IFilePart, index: number) => (
           <div key={index} className={`uploader-progress-item`}>
             <div className={`uploader-progress-item-name`}>
-              {file!.name}{`（${percent}%）`}
-              {url && <a href={url} target='_blank' rel='noreferrer'>Link</a>}
+              {chunkName}{`（${percent}%）`}
             </div>
             <Progress percent={percent || 0} />
           </div>
