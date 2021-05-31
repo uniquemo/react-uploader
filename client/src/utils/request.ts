@@ -1,11 +1,11 @@
 interface OPTIONS {
-  baseURL?: string
-  method?: string
-  url: string
-  headers?: any
-  data?: any
-  setXHR?: any
-  onProgress?: any
+  baseURL?: string;
+  method?: string;
+  url: string;
+  headers?: any;
+  data?: any;
+  setXHR?: any;
+  onProgress?: any;
 }
 
 const request = (options: OPTIONS): Promise<any> => {

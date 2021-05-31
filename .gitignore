@@ -1,5 +1,5 @@
 node_modules
 server/uploads
 
-public
-temp
+server/src/public
+server/src/temp

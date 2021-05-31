@@ -1,6 +1,7 @@
 import { IFilePart } from 'types/index';
 
-const DEFAULT_SIZE = 1024 * 1024 * 100;
+// const DEFAULT_SIZE = 1024 * 1024 * 50;
+const DEFAULT_SIZE = 1024 * 1024 * 1;
 
 export const createChunks = (file: File): IFilePart[] => {
   let current = 0;

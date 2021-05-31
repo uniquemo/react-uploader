@@ -11,6 +11,8 @@ export interface IUploaderProps {
   action: string;
 }
 
+const MAX_ACTIVE_REQ_COUNT = 4;
+
 const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [currentFile, setCurrentFile] = useState<File>();
@@ -74,13 +76,68 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
     }
 
     try {
-      const requests = createRequests(partList, uploadList, filename);
-      await Promise.all(requests);
-      await request({ url: `/merge/${filename}` });
-      window.alert(`上传成功`);
+      // const requests = createRequests(partList, uploadList, filename);
+      // await Promise.all(requests);
+      // await request({ url: `/merge/${filename}` });
+      // window.alert(`上传成功`);
+      createConcurrentRequests(partList, uploadList, filename);
     } catch (error) {
       window.alert('上传失败或暂停');
     }
+  }
+
+  // 添加并发请求数控制
+  const createConcurrentRequests = async (partList: IFilePart[], uploadList: IUploadedFile[], filename: string) => {
+    let activeReqCount = 0;
+    let successReqCount = 0;
+
+    const partListWaiting = partList.filter((part: IFilePart) => {
+      const uploadFile = uploadList.find(item => item.filename === part.chunkName);
+      if (!uploadFile) {
+        part.loaded = 0;
+        part.percent = 0;
+        return true;
+      }
+      if (uploadFile.size < part.chunk.size) {
+        part.loaded = uploadFile.size;
+        part.percent = Number((part.loaded / part.chunk.size * 100).toFixed(2));
+        return true;
+      }
+      return false;
+    });
+
+    const targetReqCount = partListWaiting.length;
+
+    const doRequest = () => {
+      while (activeReqCount < MAX_ACTIVE_REQ_COUNT && partListWaiting.length) {
+        const part = partListWaiting.shift() as IFilePart;
+        activeReqCount += 1;
+
+        request({
+          url: `/upload/${filename}/${part.chunkName}/${part.loaded}`,
+          method: 'post',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          setXHR: (xhr: XMLHttpRequest) => part.xhr = xhr,
+          onProgress: (event: ProgressEvent) => {
+            part.percent = Number(((part.loaded! + event.loaded) / part.chunk.size * 100).toFixed(2));
+            console.log('part.percent', part.chunkName, part.percent);
+            setPartList([...partList]);
+          },
+          data: part.chunk.slice(part.loaded)
+        }).then(async () => {
+          activeReqCount -= 1;
+          successReqCount += 1;
+          if (successReqCount !== targetReqCount) {
+            doRequest();
+          } else if (successReqCount === targetReqCount) {
+            await request({ url: `/merge/${filename}` });
+            window.alert(`上传成功`);
+          }
+        })
+      }
+    }
+
+    doRequest();
   }
 
   const createRequests = (partList: IFilePart[], uploadList: IUploadedFile[], filename: string) => {

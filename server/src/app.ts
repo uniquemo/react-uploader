@@ -48,7 +48,7 @@ app.get('/merge/:filename', async function (req: Request, res: Response) {
   res.json({ success: true });
 });
 
-// 每次先计算hash值 
+// 每次上传之前先看看是否已经上传过
 app.get('/verify/:filename', async (req: Request, res: Response): Promise<any> => {
   const { filename } = req.params;
   const filePath = path.resolve(PUBLIC_DIR, filename);
