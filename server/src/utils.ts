@@ -39,6 +39,11 @@ const pipeStream = (filePath: string, ws: WriteStream) => new Promise(function (
  * 3.为了提高性能，尽量用流来实现，不要 readFile writeFile
  */
 export const mergeChunks = async (filename: string, size: number = DEFAULT_SIZE) => {
+  const exist = await fs.pathExists(PUBLIC_DIR);
+  if (!exist) {
+    await fs.mkdirs(PUBLIC_DIR);
+  }
+
   const filePath = path.resolve(PUBLIC_DIR, filename);
   const chunksDir = path.resolve(TEMP_DIR, filename);
   const chunkFiles = await fs.readdir(chunksDir);

@@ -12,6 +12,7 @@ export interface IUploaderProps {
 }
 
 const MAX_ACTIVE_REQ_COUNT = 4;
+const CONCURRENT_MODE = true;
 
 const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -72,15 +73,20 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
   const uploadParts = async (partList: IFilePart[], filename: string) => {
     const { needUpload, uploadList } = await verify(filename);
     if (!needUpload) {
+      partList.forEach((item: IFilePart) => item.percent = 100);
+      setPartList([...partList]);
       return window.alert('秒传成功');
     }
 
     try {
-      // const requests = createRequests(partList, uploadList, filename);
-      // await Promise.all(requests);
-      // await request({ url: `/merge/${filename}` });
-      // window.alert(`上传成功`);
-      createConcurrentRequests(partList, uploadList, filename);
+      if (CONCURRENT_MODE) {
+        createConcurrentRequests(partList, uploadList, filename);
+      } else {
+        const requests = createRequests(partList, uploadList, filename);
+        await Promise.all(requests);
+        await request({ url: `/merge/${filename}` });
+        window.alert(`上传成功`);
+      }
     } catch (error) {
       window.alert('上传失败或暂停');
     }
@@ -103,6 +109,7 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
         part.percent = Number((part.loaded / part.chunk.size * 100).toFixed(2));
         return true;
       }
+      part.percent = 100;
       return false;
     });
 
@@ -124,6 +131,7 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
             setPartList([...partList]);
           },
           data: part.chunk.slice(part.loaded)
+        // eslint-disable-next-line no-loop-func
         }).then(async () => {
           activeReqCount -= 1;
           successReqCount += 1;
@@ -168,6 +176,13 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
         data: part.chunk.slice(part.loaded)
       })
     })
+  }
+
+  const checkHealth = async () => {
+    await request({
+      url: '/health'
+    });
+    window.alert('check health success');
   }
 
   const onDragEnter = (event: DragEvent) => {
@@ -237,6 +252,11 @@ const Uploader: React.FC<IUploaderProps> = ({ name, action }) => {
         <button onClick={handlePause}>暂停</button>
         <button onClick={handleResume}>继续</button>
       </div>
+      <hr />
+      <div>
+        <button onClick={checkHealth}>测试上传过程中，并发数是 4，仍然可以发起其他请求</button>
+      </div>
+      <hr />
 
       <div>
         <div>hash percent：{`${hashPercent}%`}</div>

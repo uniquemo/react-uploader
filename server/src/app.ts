@@ -14,6 +14,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static(path.resolve(__dirname, 'public')));
 
+app.get('/health', async function (_req: Request, res: Response) {
+  res.json({
+    success: true,
+    data: true
+  })
+})
+
 app.post('/upload/:filename/:chunkName/:start', async function (req: Request, res: Response, _next: NextFunction) {
   const { filename, chunkName } = req.params;
   const start: number = Number(req.params.start);
